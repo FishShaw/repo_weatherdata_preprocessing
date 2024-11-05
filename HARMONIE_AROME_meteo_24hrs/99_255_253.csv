@@ -1,0 +1,11 @@
+Code,Parameter Name,Description,Units
+1,PMSL,Pressure altitude above mean sea level,Pa
+6,GP,Geopotential,m^2 s^-2
+11,TMP,Temperature,K
+17,DPT,Dew-point temperature,K
+20,VIS,Visibility,m
+33,UGRD,u-component of wind,m s^-1
+34,VGRD,v-component of wind,m s^-1
+52,RH,Relative humidity,%
+61,APCP,Total precipitation,kg m^-2
+181,LPSX,Rain,kg m^-2

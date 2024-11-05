@@ -1,0 +1,16 @@
+{
+    "original_min": 0.0,
+    "original_max": 0.004244208335876465,
+    "parameter": "LPSX",
+    "units": "1/m",
+    "dimensions": [
+        390,
+        390
+    ],
+    "coordinates": {
+        "lat_min": 49.0,
+        "lat_max": 56.002,
+        "lon_min": 0.0,
+        "lon_max": 11.281
+    }
+}

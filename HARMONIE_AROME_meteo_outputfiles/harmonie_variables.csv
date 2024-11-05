@@ -1,0 +1,51 @@
+Code,Short_name,Description,Units,Leveltype,Level,TRI
+1,PMSL,Pressure altitude above MSL,Pa,sfc,0,0
+6,GEOP,Geopotential,m²/s²,pl,300,0
+11,TMP,Temperature,K,pl,850,0
+11,TMP,Temperature,K,sfc,0,0
+11,TMP,Temperature,K,sfc,2,0
+20,VIS,Visibility,m,sfc,0,0
+33,UGRD,U-component of wind,m/s,pl,700,0
+33,UGRD,U-component of wind,m/s,sfc,10,0
+33,UGRD,U-component of wind,m/s,sfc,300,0
+33,UGRD,U-component of wind,m/s,sfc,100,0
+33,UGRD,U-component of wind,m/s,sfc,200,0
+34,VGRD,V-component of wind,m/s,pl,700,0
+34,VGRD,V-component of wind,m/s,sfc,100,0
+34,VGRD,V-component of wind,m/s,sfc,10,0
+34,VGRD,V-component of wind,m/s,sfc,200,0
+34,VGRD,V-component of wind,m/s,sfc,300,0
+40,VVEL,Vertical velocity,m/s,pl,500,0
+40,VVEL,Vertical velocity,m/s,pl,600,0
+40,VVEL,Vertical velocity,m/s,pl,700,0
+40,VVEL,Vertical velocity,m/s,pl,850,0
+41,ABSV,Absolute vorticity,s⁻¹,pl,500,0
+41,ABSV,Absolute vorticity,s⁻¹,pl,600,0
+41,ABSV,Absolute vorticity,s⁻¹,pl,700,0
+41,ABSV,Absolute vorticity,s⁻¹,pl,850,0
+52,RH,Relative humidity,%,pl,850,0
+52,RH,Relative humidity,%,sfc,2,0
+65,WEASD,Water equivalent of snow,kg/m²,sfc,0,0
+71,TCC,Total cloud cover,%,sfc,0,0
+73,LCC,Low cloud cover,%,sfc,0,0
+74,MCC,Medium cloud cover,%,sfc,0,0
+75,HCC,High cloud cover,%,sfc,0,0
+115,SWR,Net shortwave radiation,J/m²,sfc,0,4
+116,LWR,Net longwave radiation,J/m²,sfc,0,0
+117,GRAD,Global radiation flux,W/m²,sfc,0,4
+121,MX2T,Maximum temperature 2m,K,sfc,0,4
+122,MN2T,Minimum temperature 2m,K,sfc,0,4
+160,CAPE,Convective available potential energy,J/kg,sfc,0,0
+161,CIN,Convective inhibition,J/kg,sfc,0,0
+162,CSULF,U-momentum of gusts,m/s,sfc,10,2
+163,CSDLF,V-momentum of gusts,m/s,sfc,10,2
+165,BLH,Boundary layer height,m,sfc,0,0
+181,LPSX,Rain,kg/m²,sfc,0,0
+181,LPSX,Rain,kg/m²,sfc,0,4
+184,HGTY,Snow,kg/m²,sfc,0,0
+184,HGTY,Snow,kg/m²,sfc,0,4
+186,ICNG,Cloud base,m,sfc,0,0
+187,CEIL,Cloud ceiling,m,sfc,0,0
+201,ICWAT,Graupel,kg/m²,sfc,0,0
+201,ICWAT,Graupel,kg/m²,sfc,0,4
+209,TWATER,Total column water,kg/m²,sfc,0,0
