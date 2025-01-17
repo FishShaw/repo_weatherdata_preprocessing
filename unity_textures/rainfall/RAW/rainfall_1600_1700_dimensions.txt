@@ -1,0 +1,6 @@
+Width: 390
+Height: 390
+Original Min: -0.00146484375
+Original Max: 21.5791015625
+Data Type: rainfall
+Units: mm

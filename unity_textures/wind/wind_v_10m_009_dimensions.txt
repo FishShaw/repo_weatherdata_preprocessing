@@ -1,0 +1,6 @@
+Width: 390
+Height: 390
+Original Min: -16.40409755706787
+Original Max: 16.40409755706787
+Data Type: wind_v
+Units: m/s

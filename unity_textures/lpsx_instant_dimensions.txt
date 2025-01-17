@@ -1,4 +1,0 @@
-Width: 390
-Height: 390
-Original Min: 0.0
-Original Max: 0.004244208335876465

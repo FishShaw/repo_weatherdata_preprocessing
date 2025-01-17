@@ -1,0 +1,6 @@
+Width: 390
+Height: 390
+Original Min: -13.282504081726074
+Original Max: 13.282504081726074
+Data Type: wind_u
+Units: m/s
