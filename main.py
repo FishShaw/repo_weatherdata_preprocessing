@@ -1,6 +1,7 @@
 import logging
 import traceback
 import time
+import json
 from weatherdata_rain_wind import WeatherData
 from Pipe import *
 
@@ -8,10 +9,9 @@ class WeatherServer:
     def __init__(self, base_path: str):
         """Initialize weather server with data handler"""
         try:
-            logging.info("Initializing WeatherData...")
             self.weather_data = WeatherData(base_path)
-            logging.info("WeatherData initialized successfully")
             self.pipe = None
+            self._coord_buffer = []
         except Exception as e:
             logging.error(f"Failed to initialize WeatherData: {e}")
             raise
@@ -19,11 +19,9 @@ class WeatherServer:
     def start_pipe_server(self):
         """Start the named pipe server"""
         try:
-            logging.info("Creating named pipe server...")
             self.pipe = Pipe("KNMI_Interop_", True)
             logging.info("Waiting for client connection...")
             self.pipe.connect()
-            logging.info("Client connected successfully")
         except Exception as e:
             logging.error(f"Failed to create/connect pipe: {e}")
             if self.pipe:
@@ -32,25 +30,52 @@ class WeatherServer:
 
     def handle_request(self, mid: str, msg: str):
         try:
-            if mid == "COORDS":
-                lat, lon = map(float, msg.split(','))
+            if mid == "COORDS_CHUNK":
+                header, coords = msg.split(":", 1)
+                offset, total = map(int, header.split("/"))
                 
-                # Get weather data for all 16 hours
-                all_hours_data = self.weather_data.get_weather_at_coords_all_hours(lat, lon)
+                chunk_coords = [tuple(map(float, coord.split(","))) 
+                              for coord in coords.split("|")]
                 
-                # Format response
-                response = ""
-                for hour in range(16):  # 0-15 hours
-                    hour_data = all_hours_data[hour]
-                    response += f"{hour}:{hour_data['wind_u']},{hour_data['wind_v']},{hour_data['wind_speed']},{hour_data['rain']}#"
+                self._coord_buffer.extend(chunk_coords)
                 
-                self.pipe.write("WEATHER", response.rstrip('#'))  # Remove trailing #
+                ack_msg = f"{offset}/{total}"
+                self.pipe.write("CHUNK_ACK", ack_msg)
+                
+            elif mid == "COORDS_END":
+                coords_list = self._coord_buffer
+                weather_data = self.weather_data.get_weather_at_coords_list_all_hours(coords_list)
+                
+                # 构建JSON格式的响应
+                response = {
+                    "wind_u": [],
+                    "wind_v": [],
+                    "wind_speed": [],
+                    "wind_direction": [],
+                    "rain": []
+                }
+                
+                # 按小时合并数据
+                for hour in range(16):
+                    hour_data = weather_data[hour]
+                    response["wind_u"].extend(hour_data["wind_u"])
+                    response["wind_v"].extend(hour_data["wind_v"])
+                    response["wind_speed"].extend(hour_data["wind_speed"])
+                    response["wind_direction"].extend(hour_data["wind_direction"])
+                    response["rain"].extend(hour_data["rain"])
+                
+                json_response = json.dumps(response)
+                self.pipe.write("WEATHER", json_response)
+                self._coord_buffer = []
+                
             else:
-                raise Exception("Unknown message id")
+                logging.error(f"Unknown message id: {mid}")
+                raise Exception(f"Unknown message id: {mid}")
                 
         except Exception as e:
-            self.pipe.write("ERROR", str(e))
+            logging.error(f"Error handling request: {str(e)}")
             logging.error(traceback.format_exc())
+            self.pipe.write("ERROR", str(e))
 
     def run(self):
         """Run the server main loop"""
@@ -69,6 +94,7 @@ class WeatherServer:
                     self.pipe = None
                 time.sleep(5)  # 等待一段时间后重试
 
+
 if __name__ == "__main__":
     logging.basicConfig(
         level=logging.INFO,
@@ -77,10 +103,8 @@ if __name__ == "__main__":
     base_path = "HARMONIE_AROME_meteo_24hrs/extracted_merged"
     
     try:
-        logging.info("Starting Weather Server...")
         server = WeatherServer(base_path)
-        logging.info("Weather Server initialized successfully")
-        logging.info("Starting pipe server and waiting for connections...")
+        logging.info("Waiting for connections...")
         server.run()
     except Exception as e:
         logging.error(f"Fatal error: {e}")
