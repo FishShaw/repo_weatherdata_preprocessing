@@ -2,6 +2,10 @@ import logging
 import traceback
 import time
 import json
+import numpy as np
+import pandas as pd
+from datetime import datetime
+from pathlib import Path
 from weatherdata_rain_wind import WeatherData
 from Pipe import *
 
@@ -12,9 +16,39 @@ class WeatherServer:
             self.weather_data = WeatherData(base_path)
             self.pipe = None
             self._coord_buffer = []
+            # 创建坐标存储目录
+            self.coordinates_path = Path("coordinates_storage")
+            self.coordinates_path.mkdir(exist_ok=True)
         except Exception as e:
             logging.error(f"Failed to initialize WeatherData: {e}")
             raise
+
+    def _save_coordinates(self, coordinates: list):
+        """Save coordinates to JSON and CSV files"""
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        
+        # 准备JSON数据
+        json_data = {
+            "metadata": {
+                "timestamp": datetime.now().isoformat(),
+                "total_coordinates": len(coordinates),
+                "grid_size": "64x64"
+            },
+            "coordinates": [
+                {"lat": float(lat), "lon": float(lon)} 
+                for lat, lon in coordinates
+            ]
+        }
+        
+        # 保存JSON文件
+        json_path = self.coordinates_path / f"coordinates_{timestamp}.json"
+        with open(json_path, "w") as f:
+            json.dump(json_data, f, indent=2)
+            
+        # 保存CSV文件
+        df = pd.DataFrame(coordinates, columns=["latitude", "longitude"])
+        csv_path = self.coordinates_path / f"coordinates_{timestamp}.csv"
+        df.to_csv(csv_path, index=False)
 
     def start_pipe_server(self):
         """Start the named pipe server"""
@@ -39,6 +73,10 @@ class WeatherServer:
                 
                 self._coord_buffer.extend(chunk_coords)
                 
+                # 当收集到完整的64x64坐标时保存
+                if len(self._coord_buffer) == 4096:  # 64 * 64
+                    self._save_coordinates(self._coord_buffer)
+                
                 ack_msg = f"{offset}/{total}"
                 self.pipe.write("CHUNK_ACK", ack_msg)
                 
@@ -46,7 +84,6 @@ class WeatherServer:
                 coords_list = self._coord_buffer
                 weather_data = self.weather_data.get_weather_at_coords_list_all_hours(coords_list)
                 
-                # 构建JSON格式的响应
                 response = {
                     "wind_u": [],
                     "wind_v": [],
@@ -55,7 +92,6 @@ class WeatherServer:
                     "rain": []
                 }
                 
-                # 按小时合并数据
                 for hour in range(16):
                     hour_data = weather_data[hour]
                     response["wind_u"].extend(hour_data["wind_u"])

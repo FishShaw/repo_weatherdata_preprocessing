@@ -1,6 +1,7 @@
 import numpy as np
 from eccodes import *
 from pathlib import Path
+from scipy.interpolate import RectBivariateSpline, Rbf
 
 class WeatherData:
     def __init__(self, base_path: str):
@@ -193,25 +194,67 @@ class WeatherData:
     #     lat_diffs = np.abs(self.grid_info['lats'][:, 0] - lat)
     #     lon_diffs = np.abs(self.grid_info['lons'][0, :] - lon)
     #     return np.argmin(lat_diffs), np.argmin(lon_diffs)
+
+    def _get_grid_indices(self, lat: float, lon: float, method: str = 'searchsorted') -> tuple:
+        lat_array = self.grid_info['lats'][:, 0]
+        lon_array = self.grid_info['lons'][0, :]
+        
+        if method == 'searchsorted':
+            lat_idx = np.searchsorted(lat_array, lat)
+            lon_idx = np.searchsorted(lon_array, lon)
+            
+            # Boundary handling
+            lat_idx = np.clip(lat_idx, 1, len(lat_array) - 1)
+            lon_idx = np.clip(lon_idx, 1, len(lon_array) - 1)
+            
+            return lat_idx, lon_idx
+        else:  # nearest
+            lat_idx = np.abs(lat_array - lat).argmin()
+            lon_idx = np.abs(lon_array - lon).argmin()
+            return lat_idx, lon_idx
+
+    # get ground truth values
+    def get_ground_truth_values(self, coordinates: list, hour: int) -> dict:
+        if hour not in self.data_cache:
+            self._load_hour_data(hour)
+            
+        ground_truth = {
+            'wind_u': [],
+            'wind_v': [],
+            'rain': []
+        }
+
+        for lat, lon in coordinates:
+            lat_idx, lon_idx = self._get_grid_indices(lat, lon, method='nearest')
+            for param in ground_truth:
+                ground_truth[param].append(
+                    float(self.data_cache[hour][param][lat_idx, lon_idx])
+                )
+        
+        return ground_truth
+
+
     
+    # interpolate bilinear
     def _bilinear_interpolation(self, lat: float, lon: float, data: np.ndarray) -> float:
         # 找到周围的四个格点
         lat_array = self.grid_info['lats'][:, 0]
         lon_array = self.grid_info['lons'][0, :]
         
         # 找到最近的格点索引
-        lat_idx = np.searchsorted(lat_array, lat)
-        lon_idx = np.searchsorted(lon_array, lon)
+        # lat_idx = np.searchsorted(lat_array, lat)
+        # lon_idx = np.searchsorted(lon_array, lon)
+        lat_idx, lon_idx = self._get_grid_indices(lat, lon, method='searchsorted')
         
         # 确保不超出边界
-        if lat_idx == 0:
-            lat_idx = 1
-        if lon_idx == 0:
-            lon_idx = 1
-        if lat_idx >= len(lat_array):
-            lat_idx = len(lat_array) - 1
-        if lon_idx >= len(lon_array):
-            lon_idx = len(lon_array) - 1
+        # if lat_idx == 0:
+        #     lat_idx = 1
+        # if lon_idx == 0:
+        #     lon_idx = 1
+        # if lat_idx >= len(lat_array):
+        #     lat_idx = len(lat_array) - 1
+        # if lon_idx >= len(lon_array):
+        #     lon_idx = len(lon_array) - 1
         
         # 获取四个角点的坐标和值
         lat1, lat2 = lat_array[lat_idx-1], lat_array[lat_idx]
@@ -231,16 +274,177 @@ class WeatherData:
                 q21 * (1-x) * y +
                 q12 * x * (1-y) +
                 q22 * x * y)
-
+    
+    # interpolate nearest neighbor （for ground truth）
     def _nearest_neighbor_interpolation(self, lat: float, lon: float, data: np.ndarray) -> float:
         """For rain data, use nearest neighbor interpolation"""
-        lat_array = self.grid_info['lats'][:, 0]
-        lon_array = self.grid_info['lons'][0, :]
+        # lat_array = self.grid_info['lats'][:, 0]
+        # lon_array = self.grid_info['lons'][0, :]
         
         # 找到最近的格点索引
-        lat_idx = np.abs(lat_array - lat).argmin()
-        lon_idx = np.abs(lon_array - lon).argmin()
-        
+        # lat_idx = np.abs(lat_array - lat).argmin()
+        # lon_idx = np.abs(lon_array - lon).argmin()
+        lat_idx, lon_idx = self._get_grid_indices(lat, lon, method='nearest')
         return float(data[lat_idx, lon_idx])
 
+    
 
+
+    # interpolate idw
+    def interpolate_idw(self, lat: float, lon: float, data: np.ndarray, p: int = 2) -> float:
+        # get grid indices
+        lat_idx, lon_idx = self._get_grid_indices(lat, lon, method='searchsorted')
+        
+        # define local window 
+        window_size = 1  # 3x grid
+        lat_start = max(0, lat_idx - window_size)
+        lat_end = min(len(self.grid_info['lats'][:, 0]), lat_idx + window_size + 1)
+        lon_start = max(0, lon_idx - window_size)
+        lon_end = min(len(self.grid_info['lons'][0, :]), lon_idx + window_size + 1)
+        
+        # extract local grid latitude and longitude
+        local_lats = self.grid_info['lats'][lat_start:lat_end, lon_start:lon_end]
+        local_lons = self.grid_info['lons'][lat_start:lat_end, lon_start:lon_end]
+        local_data = data[lat_start:lat_end, lon_start:lon_end]
+        
+        # calculate local distance matrix
+        distances = np.sqrt((local_lats - lat)**2 + (local_lons - lon)**2)
+        distances = np.maximum(distances, 1e-10)
+        weights = 1 / (distances ** p)
+        
+        return np.sum(weights * local_data) / np.sum(weights)
+    
+
+
+    def interpolate_kriging(self, lat: float, lon: float, data: np.ndarray, 
+                       parameter_type: str = 'wind') -> float:
+        # get grid indices
+        lat_idx, lon_idx = self._get_grid_indices(lat, lon, method='searchsorted')
+        
+        # define local window
+        window_size = 2  # 5x5 grid
+        lat_start = max(0, lat_idx - window_size)
+        lat_end = min(len(self.grid_info['lats'][:, 0]), lat_idx + window_size + 1)
+        lon_start = max(0, lon_idx - window_size)
+        lon_end = min(len(self.grid_info['lons'][0, :]), lon_idx + window_size + 1)
+        
+        # extract local data and corresponding latitude and longitude
+        local_data = data[lat_start:lat_end, lon_start:lon_end]
+        local_lats = self.grid_info['lats'][lat_start:lat_end, lon_start:lon_end]
+        local_lons = self.grid_info['lons'][lat_start:lat_end, lon_start:lon_end]
+        
+        # calculate local distance matrix
+        distances = np.sqrt((local_lats - lat)**2 + (local_lons - lon)**2)
+        
+        # parameter configuration (based on 2km grid scale)
+        if parameter_type == 'wind':
+            range_param = 4000  # 2 grid distance
+            nugget = 0.1       # smaller measurement error
+        else:  # precipitation
+            range_param = 2000  # 1 grid distance
+            nugget = 0.2       # larger measurement error
+        
+        # calculate local variance (sill)
+        sill = np.var(local_data)
+        
+        # calculate kriging weights (using exponential variogram model)
+        weights = nugget + sill * (1 - np.exp(-3 * distances / range_param))
+        
+        return np.sum(weights * local_data) / np.sum(weights)
+
+
+    def interpolate_spline(self, lat: float, lon: float, data: np.ndarray) -> float:
+        """
+        use spline interpolation
+        """
+        # get grid indices
+        lat_idx, lon_idx = self._get_grid_indices(lat, lon, method='searchsorted')
+        
+        # use 5x5 window (about 10km x 10km, cover most original data points)
+        window_size = 2
+        lat_start = max(0, lat_idx - window_size)
+        lat_end = min(len(self.grid_info['lats'][:, 0]), lat_idx + window_size + 1)
+        lon_start = max(0, lon_idx - window_size)
+        lon_end = min(len(self.grid_info['lons'][0, :]), lon_idx + window_size + 1)
+        
+        # extract local data
+        local_data = data[lat_start:lat_end, lon_start:lon_end]
+        local_lats = self.grid_info['lats'][lat_start:lat_end, lon_start:lon_end][:, 0]
+        local_lons = self.grid_info['lons'][lat_start:lat_end, lon_start:lon_end][0, :]
+        
+        # create spline interpolator
+        spline = RectBivariateSpline(
+            local_lats,
+            local_lons,
+            local_data,
+            kx=3,
+            ky=3,
+            s=0.1  # slight smoothing, improve stability
+        )
+        
+        return float(spline(lat, lon))
+
+    def interpolate_rbf(self, lat: float, lon: float, data: np.ndarray) -> float:
+        """
+        use radial basis function interpolation
+        suitable for precipitation with large local variations
+        """
+        # get grid indices
+        lat_idx, lon_idx = self._get_grid_indices(lat, lon, method='searchsorted')
+        
+        # use 5x5 window (about 10km x 10km, cover most original data points)
+        window_size = 2
+        lat_start = max(0, lat_idx - window_size)
+        lat_end = min(len(self.grid_info['lats'][:, 0]), lat_idx + window_size + 1)
+        lon_start = max(0, lon_idx - window_size)
+        lon_end = min(len(self.grid_info['lons'][0, :]), lon_idx + window_size + 1)
+        
+        # extract local data
+        local_data = data[lat_start:lat_end, lon_start:lon_end]
+        local_lats = self.grid_info['lats'][lat_start:lat_end, lon_start:lon_end]
+        local_lons = self.grid_info['lons'][lat_start:lat_end, lon_start:lon_end]
+        
+        # prepare RBF input
+        points_lat = local_lats.flatten()
+        points_lon = local_lons.flatten()
+        values = local_data.flatten()
+        
+        # create RBF interpolator
+        rbf = Rbf(points_lat, points_lon, values, 
+                  function='gaussian',  # gaussian function, provide better local characteristics
+                  epsilon=1.0)         # smaller shape parameter, improve precision
+        
+        return float(rbf(lat, lon))
+    
+
+    def generate_interpolation_comparison(self, coordinates: list, hour: int) -> dict:
+        if hour not in self.data_cache:
+            self._load_hour_data(hour)
+            
+        results = {
+            'ground_truth': self.get_ground_truth_values(coordinates, hour),
+            'bilinear': {'wind_u': [], 'wind_v': [], 'rain': []},
+            'idw': {'wind_u': [], 'wind_v': [], 'rain': []},
+            'kriging': {'wind_u': [], 'wind_v': [], 'rain': []},
+            'spline': {'wind_u': [], 'wind_v': [], 'rain': []},
+            'rbf': {'wind_u': [], 'wind_v': [], 'rain': []}
+        }
+        
+        for lat, lon in coordinates:
+            for param in ['wind_u', 'wind_v', 'rain']:
+                data = self.data_cache[hour][param]
+                
+                # use all interpolation methods
+                results['bilinear'][param].append(
+                    self._bilinear_interpolation(lat, lon, data))
+                results['idw'][param].append(
+                    self.interpolate_idw(lat, lon, data))
+                results['kriging'][param].append(
+                    self.interpolate_kriging(lat, lon, data, 
+                                        'wind' if 'wind' in param else 'precipitation'))
+                results['spline'][param].append(
+                    self.interpolate_spline(lat, lon, data))
+                results['rbf'][param].append(
+                    self.interpolate_rbf(lat, lon, data))
+        
+        return results
